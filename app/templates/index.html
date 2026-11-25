@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>笔顺订正 · 最少动作示范</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">笔</span>
+      <div>
+        <h1>笔顺订正工作台</h1>
+        <p class="subtitle">对着范字临摹 · 离散 Fréchet 配笔 · 最少移 / 删 / 补动作</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <label class="threshold-box">
+        Fréchet 上限
+        <input id="threshold" type="range" min="40" max="600" step="10"
+               value="{{ default_threshold }}" />
+        <span class="threshold-value"><b id="thresholdValue">{{ default_threshold }}</b> / {{ grid }}</span>
+      </label>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ======================= Canvas card ======================= -->
+    <section class="card canvas-card">
+      <div class="char-picker" id="charPicker" aria-label="选择范字"></div>
+
+      <div class="canvas-wrap">
+        <canvas id="board" width="1000" height="1000"
+                aria-label="临摹画布，用鼠标或手指书写笔画"></canvas>
+        <div class="canvas-hint" id="canvasHint">在米字格中按住并拖动来写一笔</div>
+      </div>
+
+      <div class="draw-toolbar">
+        <button id="btnUndo" class="btn" type="button">撤销上一笔</button>
+        <button id="btnClear" class="btn" type="button">清空笔迹</button>
+        <button id="btnSample" class="btn btn-ghost" type="button">填入示例笔迹（含典型错误）</button>
+        <span class="stroke-count"><b id="strokeCount">0</b>/10 笔 · 每笔≤64点</span>
+      </div>
+    </section>
+
+    <!-- ======================= Side panel ======================= -->
+    <aside class="side">
+      <section class="card">
+        <div class="row-between">
+          <h2>实写笔画</h2>
+          <span class="muted">勾选“保留”的笔不能删、不能移动</span>
+        </div>
+        <ul id="strokeList" class="stroke-list"></ul>
+        <div id="emptyStrokes" class="empty">还没有笔迹，可在画布书写，或点“填入示例笔迹”。</div>
+      </section>
+
+      <section class="card plan-card">
+        <div class="row-between">
+          <h2>最少动作修订</h2>
+          <button id="btnPlan" class="btn btn-primary" type="button">求最优修订</button>
+        </div>
+
+        <div id="staleNotice" class="notice notice-warn" hidden>
+          笔迹或保留项已改变，旧建议已失效，请重新求解。
+        </div>
+
+        <div id="noSolution" class="notice notice-error" hidden></div>
+
+        <div id="planSummary" class="summary" hidden>
+          <div class="cost-big">最少 <b id="costTotal">0</b> 个动作</div>
+          <div class="cost-parts">
+            <span class="chip chip-move">移笔 <b id="cntMove">0</b></span>
+            <span class="chip chip-del">删笔 <b id="cntDel">0</b></span>
+            <span class="chip chip-add">补笔 <b id="cntAdd">0</b></span>
+          </div>
+        </div>
+
+        <div class="adopt-row">
+          <button id="btnAdopt" class="btn btn-adopt" type="button" disabled>
+            采纳下一步移笔 / 删笔
+          </button>
+          <span id="adoptHint" class="muted"></span>
+        </div>
+
+        <div class="playback">
+          <div class="playback-controls">
+            <button id="btnResetPb" class="btn icon-btn" type="button" title="回到初始" disabled>⏮</button>
+            <button id="btnPrev" class="btn icon-btn" type="button" title="上一步" disabled>◀</button>
+            <button id="btnPlay" class="btn btn-primary" type="button" disabled>播放</button>
+            <button id="btnNext" class="btn icon-btn" type="button" title="下一步" disabled>▶</button>
+          </div>
+          <ol id="stepList" class="step-list"></ol>
+        </div>
+      </section>
+
+      <section class="card log-card">
+        <h2>已采纳动作</h2>
+        <ul id="adoptLog" class="adopt-log"></ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    坐标统一到 {{ grid }}×{{ grid }} 网格；按原始方向计算离散 Fréchet 距离，
+    仅距离 ≤ 上限的两笔可匹配。成稿与范字按笔序一一对应。
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

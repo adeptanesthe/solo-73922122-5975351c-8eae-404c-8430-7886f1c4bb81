@@ -1,0 +1,19 @@
+services:
+  web:
+    build: .
+    image: stroke-order-tutor:latest
+    ports:
+      # Published on both the gunicorn port (8000) and the Flask convention
+      # port (5000 -> container 8000) so either http://localhost:8000 or
+      # http://localhost:5000 reaches the app.
+      - "8000:8000"
+      - "5000:8000"
+    environment:
+      - PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

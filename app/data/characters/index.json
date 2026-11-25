@@ -1,0 +1,53 @@
+{
+  "grid": 1000,
+  "characters": [
+    {
+      "id": "yi",
+      "char": "一",
+      "meaning": "数字一",
+      "stroke_count": 1
+    },
+    {
+      "id": "shi",
+      "char": "十",
+      "meaning": "十",
+      "stroke_count": 2
+    },
+    {
+      "id": "ren",
+      "char": "人",
+      "meaning": "人",
+      "stroke_count": 2
+    },
+    {
+      "id": "ba",
+      "char": "八",
+      "meaning": "八",
+      "stroke_count": 2
+    },
+    {
+      "id": "da",
+      "char": "大",
+      "meaning": "大",
+      "stroke_count": 3
+    },
+    {
+      "id": "kou",
+      "char": "口",
+      "meaning": "口",
+      "stroke_count": 3
+    },
+    {
+      "id": "tu",
+      "char": "土",
+      "meaning": "泥土",
+      "stroke_count": 3
+    },
+    {
+      "id": "mu",
+      "char": "木",
+      "meaning": "树木",
+      "stroke_count": 4
+    }
+  ]
+}
