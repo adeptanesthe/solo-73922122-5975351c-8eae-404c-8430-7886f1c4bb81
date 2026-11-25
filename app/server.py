@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from typing import Any, Dict
 
@@ -78,6 +79,8 @@ def create_app() -> Flask:
             threshold = float(threshold)
         except (TypeError, ValueError):
             return jsonify({"feasible": False, "reason": "上限必须是数字"}), 400
+        if not math.isfinite(threshold):
+            return jsonify({"feasible": False, "reason": "上限必须是有限数字"}), 400
         if threshold < 0:
             threshold = 0.0
 

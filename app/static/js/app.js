@@ -493,10 +493,10 @@ function render() {
         if (state.pb < state.plan.steps.length) {
           state.pb += 1;
           state.lastTick = now;
-          renderStepList();
-          updatePlanButtons();
         }
         if (state.pb >= state.plan.steps.length) state.playing = false;
+        renderStepList();
+        updatePlanButtons();
       }
     }
   }

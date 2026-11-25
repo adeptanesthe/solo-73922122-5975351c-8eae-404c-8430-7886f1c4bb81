@@ -79,6 +79,15 @@ def validate_payload(strokes: Any, model: Any) -> Optional[str]:
         for p in pts:
             if not isinstance(p, (list, tuple)) or len(p) < 2:
                 return f"{label}第 {idx + 1} 笔存在非法坐标点"
+            for value in p[:2]:
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return f"{label}第 {idx + 1} 笔存在非法坐标点"
+                try:
+                    finite = math.isfinite(float(value))
+                except OverflowError:
+                    finite = False
+                if not finite:
+                    return f"{label}第 {idx + 1} 笔存在非法坐标点"
         return None
 
     for i, s in enumerate(strokes):
@@ -193,20 +202,36 @@ def solve_matrix(
         idx = old_idx
 
     assign: Dict[int, int] = {}
-    backbone: Set[int] = set()
-    moves = deletes = 0
     occupied = 0
     for x, dec in enumerate(decisions):
         if dec[0] == "del":
-            deletes += 1
             continue
         j = int(dec[1])
         assign[x] = j
         occupied |= 1 << j
-        if dec[0] == "mv":
-            moves += 1
+
+    # The DP tie-break may reconstruct one maximum-length backbone while the
+    # step builder's deterministic forced-LIS tie-break chooses another.  They
+    # have the same cardinality/cost; normalise the public result to the exact
+    # forced LIS used to construct steps so a declared unmoved stroke is never
+    # targeted by a move/delete operation.
+    survivors = sorted(assign)
+    ranks = [assign[x] for x in survivors]
+    forced_positions = {i for i, x in enumerate(survivors) if bool(preserved[x])}
+    lis_positions = maximum_forced_lis(ranks, forced_positions)
+    backbone = {survivors[i] for i in lis_positions}
+
+    moves = deletes = 0
+    for x in range(K):
+        if decisions[x][0] == "del":
+            deletes += 1
+            continue
+        j = assign[x]
+        if x in backbone:
+            decisions[x] = ("bb", j)
         else:
-            backbone.add(x)
+            decisions[x] = ("mv", j)
+            moves += 1
 
     add_slots = [j for j in range(N) if not (occupied & (1 << j))]
     return SolveResult(
@@ -367,72 +392,73 @@ def build_plan(
 
     n_model = len(model)
     steps: List[Dict[str, Any]] = []
+    k_strokes = len(strokes)
+    pres_flags = preserved_of(strokes)
 
-    # --- Delete steps: repeatedly remove the leftmost doomed uid. ----------
+    # External uids are echoed exactly when supplied.  Internally, however,
+    # original positions are the only identity: an omitted uid defaults to an
+    # integer index in the API, and that value can collide with an explicit
+    # numeric uid from the request.
+    def external_uid(x: int) -> Any:
+        stroke = strokes[x]
+        if isinstance(stroke, dict) and "uid" in stroke:
+            return stroke["uid"]
+        return x
+
+    # --- Delete steps: repeatedly remove the leftmost doomed stroke. -------
+    # ``live_keys`` stores immutable internal identities (original indexes).
     doomed = {x for x, d in enumerate(result.decisions) if d[0] == "del"}
-    live: List[Dict[str, Any]] = [dict(s) if isinstance(s, dict) else {"points": s}
-                                  for s in strokes]
-    uid_of_pos = [s.get("uid", i) for i, s in enumerate(live)]
-    # Map original position -> uid (uid defaults to original index).
-    orig_uid = {x: (strokes[x].get("uid", x) if isinstance(strokes[x], dict) else x)
-                for x in range(len(strokes))}
+    live_keys: List[int] = list(range(k_strokes))
 
     while doomed:
-        # current positions of doomed original uids
-        candidates = []
-        for x in doomed:
-            u = orig_uid[x]
-            pos = next(k for k, s in enumerate(live) if s.get("uid", k) == u)
-            candidates.append((pos, x, u))
-        pos, x, u = min(candidates)
+        pos = next(pos for pos, key in enumerate(live_keys) if key in doomed)
+        x = live_keys.pop(pos)
+        doomed.remove(x)
         steps.append({
             "kind": "delete",
+            # pos was found before popping and is therefore the required
+            # zero-based index in the state immediately before this step.
             "index": pos,
-            "uid": u,
+            "uid": external_uid(x),
             "points": [list(p) for p in points_of(strokes[x])],
             "label": f"删除当前第 {pos + 1} 笔",
         })
-        live.pop(pos)
-        doomed.discard(x)
 
     # --- Move steps for surviving strokes ----------------------------------
-    # Survivors keep their original position identity via uid.
-    survivors: List[int] = [x for x in range(len(strokes))
+    survivors: List[int] = [x for x in range(k_strokes)
                             if result.decisions[x][0] != "del"]
-    # Current uid order after deletes.
-    current_uids = [s.get("uid") for s in live]
-    # Target uid order = survivors sorted by assigned model slot.
-    survivors_by_slot = sorted(survivors, key=lambda x: result.assign[x])
-    target_uids = [orig_uid[x] for x in survivors_by_slot]
+    current_keys = list(live_keys)
+    # Target order = survivors sorted by their unique assigned model slot.
+    target_keys = sorted(survivors, key=lambda x: (result.assign[x], x))
 
-    # Recompute a maximum forced LIS backbone on the survivor order.
-    # Ranks are assigned slots; forced = preserved survivors.
-    surv_orig_sorted = sorted(survivors)  # original/current relative order
-    pres_flags = preserved_of(strokes)
-    ranks = [result.assign[x] for x in surv_orig_sorted]
-    uid_seq = [orig_uid[x] for x in surv_orig_sorted]
-    forced_positions = {i for i, x in enumerate(surv_orig_sorted) if pres_flags[x]}
-    lis_positions = maximum_forced_lis(ranks, forced_positions)
-    fixed_uids = {uid_seq[i] for i in lis_positions}
+    # ``solve_matrix`` has already normalised its decisions/backbone to the
+    # same deterministic maximum forced LIS used by the operation builder.
+    fixed_keys = set(result.backbone)
+    fixed_keys.update(x for x in survivors if pres_flags[x])
 
-    move_ops = move_operations_to_target(current_uids, target_uids, fixed_uids)
-    slot_of_uid = {orig_uid[x]: result.assign[x] for x in survivors}
+    move_ops = move_operations_to_target(current_keys, target_keys, fixed_keys)
     for op in move_ops:
-        j = slot_of_uid[op["uid"]]
+        x = int(op["uid"])  # passed as an internal original-position key
+        j = result.assign[x]
         steps.append({
             "kind": "move",
             "from": op["from"],
             "to": op["to"],
-            "uid": op["uid"],
+            "uid": external_uid(x),
             "slot": j,
             "label": (f"把当前第 {op['from'] + 1} 笔移到第 {op['to'] + 1} 个"
                       f"实写笔序位置（对应范字第 {j + 1} 笔）"),
         })
-        apply_move(live, op["from"], op["to"])
+        apply_move(live_keys, op["from"], op["to"])
 
-    # Sanity: generated real steps must match the DP counts exactly.
+    # Sanity: generated real steps must match the DP counts exactly and must
+    # leave surviving internal identities in assignment-slot order.
     n_del_steps = sum(1 for s in steps if s["kind"] == "delete")
     n_mv_steps = sum(1 for s in steps if s["kind"] == "move")
+    if live_keys != target_keys:
+        raise RuntimeError("failed to construct move steps for the optimal assignment")
+    unmoved_indexes = sorted(fixed_keys)
+    unmoved_uids = [external_uid(x) for x in unmoved_indexes]
 
     # --- Add steps (dashed reference strokes) ------------------------------
     for j in result.add_slots:
@@ -461,7 +487,14 @@ def build_plan(
         "dist": result.dist,
         "compatible": result.compatible,
         "assign": {str(x): j for x, j in result.assign.items()},
-        "backbone": sorted(result.backbone),
+        # Original zero-based request indexes forming the zero-move backbone.
+        "backbone": unmoved_indexes,
+        # Exact request uid values for those indexes (implicit uids are indexes).
+        "backbone_uids": unmoved_uids,
+        "fixed_uids": unmoved_uids,
+        "fixed_indexes": unmoved_indexes,
+        "unmoved_indexes": unmoved_indexes,
+        "unmoved_uids": unmoved_uids,
         "threshold": threshold,
         "n_model": n_model,
     }

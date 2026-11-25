@@ -50,6 +50,39 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(p["cost"], 1)
         self.assertEqual(p["next_action"]["kind"], "move")
 
+    def test_plan_accepts_bare_and_uidless_reverse_strokes(self):
+        for strokes in ([{"points": V}, {"points": H}], [V, H]):
+            with self.subTest(form=type(strokes[0]).__name__):
+                response = self.client.post("/api/plan", json={
+                    "character_id": "shi",
+                    "threshold": 180,
+                    "strokes": strokes,
+                })
+                self.assertEqual(response.status_code, 200)
+                p = response.get_json()
+                self.assertTrue(p["feasible"], p.get("reason"))
+                self.assertEqual(p["cost"], 1)
+                self.assertEqual(p["next_action"]["from"], 1)
+                self.assertEqual(p["next_action"]["to"], 0)
+
+    def test_numeric_uid_collision_keeps_preserved_stroke(self):
+        far = [[60, 80], [220, 120], [90, 170]]
+        body = {"character_id": "shi", "threshold": 180, "strokes": [
+            {"uid": 1, "points": H, "preserved": True},
+            far,
+            {"uid": "v", "points": V},
+        ]}
+        p = self.client.post("/api/plan", json=body).get_json()
+        self.assertTrue(p["feasible"], p.get("reason"))
+        na = p["next_action"]
+        self.assertEqual(na["kind"], "delete")
+        self.assertEqual((na["index"], na["uid"]), (1, 1))
+
+        strokes = body["strokes"]
+        strokes.pop(na["index"])
+        self.assertEqual(strokes[0]["uid"], 1)
+        self.assertTrue(strokes[0]["preserved"])
+
     def test_plan_no_solution_preserved_swap(self):
         body = {"character_id": "shi", "threshold": 180,
                 "strokes": [{"uid": "b", "points": V, "preserved": True},
@@ -124,6 +157,12 @@ class ApiTest(unittest.TestCase):
         p = self.client.post("/api/plan", json=body)
         self.assertEqual(p.status_code, 400)
         self.assertFalse(p.get_json()["feasible"])
+
+        bad_coord = {"character_id": "shi", "threshold": 180,
+                     "strokes": [{"points": [["x", 1], [2, 2]]}]}
+        r = self.client.post("/api/plan", json=bad_coord)
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.get_json()["feasible"])
 
 
 if __name__ == "__main__":

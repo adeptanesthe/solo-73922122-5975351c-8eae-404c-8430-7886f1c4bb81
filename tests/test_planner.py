@@ -131,6 +131,99 @@ class TestBasicPlans(unittest.TestCase):
         self.assertFalse(p2["feasible"])
 
 
+class TestMixedUidFormsAndStepIndexes(unittest.TestCase):
+    def test_reverse_strokes_without_uid_do_not_500(self):
+        for strokes in ([{"points": V}, {"points": H}], [V, H]):
+            with self.subTest(form=type(strokes[0]).__name__):
+                p = build_plan(strokes, MODEL, 180)
+                self.assertTrue(p["feasible"], p.get("reason"))
+                self.assertEqual(p["cost"], 1)
+                na = p["next_action"]
+                self.assertEqual(na["kind"], "move")
+                self.assertEqual((na["from"], na["to"]), (1, 0))
+
+                arr = [{"points": list(s["points"])} if isinstance(s, dict)
+                       else {"points": [list(q) for q in s]} for s in strokes]
+                apply_move(arr, na["from"], na["to"])
+                self.assertEqual([list(p) for p in arr[0]["points"]], [list(p) for p in H])
+                self.assertEqual([list(p) for p in arr[1]["points"]], [list(p) for p in V])
+
+    def test_consecutive_deletes_use_each_pre_step_index(self):
+        strokes = [
+            {"points": FAR},
+            {"points": FAR},
+            {"points": H},
+        ]
+        p = build_plan(strokes, [H], 180)
+        self.assertTrue(p["feasible"], p.get("reason"))
+        deletes = [s for s in p["steps"] if s["kind"] == "delete"]
+        self.assertEqual([s["index"] for s in deletes], [0, 0])
+
+        arr = [dict(s) for s in strokes]
+        for step in deletes:
+            arr.pop(step["index"])
+        self.assertEqual(len(arr), 1)
+        self.assertEqual(arr[0]["points"], H)
+
+    def test_numeric_explicit_uid_can_collide_with_implicit_uid(self):
+        # The explicit uid=1 belongs to a preserved H.  A bare extra stroke
+        # at request index 1 implicitly has the same API uid; internal identity
+        # must keep those separate and the delete index must target the extra.
+        strokes = [
+            {"uid": 1, "points": H, "preserved": True},
+            FAR,
+            {"uid": "v", "points": V},
+        ]
+        p = build_plan(strokes, MODEL, 180)
+        self.assertTrue(p["feasible"], p.get("reason"))
+        delete = p["next_action"]
+        self.assertEqual(delete["kind"], "delete")
+        self.assertEqual(delete["index"], 1)
+        self.assertEqual(delete["uid"], 1)  # explicit value echoed verbatim
+
+        arr = [dict(s) for s in strokes]
+        arr.pop(delete["index"])
+        self.assertEqual(arr[0]["uid"], 1)
+        self.assertTrue(arr[0]["preserved"])
+        self.assertEqual(arr[0]["points"], H)
+
+    def test_tied_move_chooses_declared_unmoved_backbone(self):
+        center = [[500, 500]]  # within 450 of both H and V
+        strokes = [
+            {"uid": "c", "points": center},
+            {"uid": "h", "points": H},
+        ]
+        p = build_plan(strokes, MODEL, 450)
+        self.assertTrue(p["feasible"], p.get("reason"))
+        self.assertEqual(p["cost"], 1)
+        move = p["steps"][0]
+        self.assertEqual(move["kind"], "move")
+        self.assertEqual(move["uid"], "h")
+        self.assertEqual((move["from"], move["to"]), (1, 0))
+        self.assertEqual(p["backbone"], [0])
+        self.assertEqual(p["backbone_uids"], ["c"])
+        moved_uids = {s.get("uid") for s in p["steps"] if s["kind"] == "move"}
+        deleted_uids = {s.get("uid") for s in p["steps"] if s["kind"] == "delete"}
+        self.assertFalse(set(p["backbone_uids"]) & moved_uids)
+        self.assertFalse(set(p["backbone_uids"]) & deleted_uids)
+
+    def test_all_preserved_indexes_are_declared_unmoved(self):
+        strokes = [
+            {"uid": "v", "points": V, "preserved": False},
+            {"uid": "h", "points": H, "preserved": True},
+        ]
+        p = build_plan(strokes, MODEL, 180)
+        self.assertTrue(p["feasible"], p.get("reason"))
+        self.assertIn(1, p["backbone"])
+        self.assertIn("h", p["backbone_uids"])
+        for step in p["steps"]:
+            if step["kind"] in ("move", "delete"):
+                self.assertNotEqual(step.get("uid"), "h")
+            if step["kind"] == "move":
+                target = strokes[step["from"]]
+                self.assertFalse(target.get("preserved"))
+
+
 class TestOptimalityProperties(unittest.TestCase):
     def test_next_action_always_drops_cost_by_one(self):
         rng = random.Random(20261124)

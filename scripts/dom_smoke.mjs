@@ -34,7 +34,14 @@ const dom = await JSDOM.fromURL(BASE, {
   virtualConsole: vc,
   beforeParse(window) {
     window.fetch = (u, opt) => fetch(new URL(u, BASE), opt);
-    window.performance = globalThis.performance;
+    try {
+      window.performance = globalThis.performance;
+    } catch {
+      Object.defineProperty(window, "performance", {
+        value: globalThis.performance,
+        configurable: true,
+      });
+    }
     window.confirm = () => true;
     window.HTMLCanvasElement.prototype.getContext = () => makeCtxProxy();
     window.HTMLCanvasElement.prototype.getBoundingClientRect = () => ({
@@ -71,7 +78,12 @@ try {
   results.push("default char = 木");
 
   $("btnSample").click();
-  await waitFor(() => $("costTotal").textContent !== "", 8000, "plan summary");
+  await waitFor(
+    () => !$("planSummary").hidden &&
+      parseInt($("costTotal").textContent || "0", 10) >= 2,
+    8000,
+    "sample plan with cost >= 2",
+  );
   await sleep(100);
   const initialCost = parseInt($("costTotal").textContent, 10);
   results.push(`sample plan cost=${initialCost} counts=` +
@@ -149,6 +161,19 @@ try {
   $("btnResetPb").click();
   await sleep(60);
   results.push("playback prev/reset ok");
+
+  // Auto-play advances on its timer, then reaches the end of the step list.
+  $("btnPlay").click();
+  await waitFor(() => $("btnPlay").textContent === "暂停", 2000, "play button pause state");
+  await waitFor(
+    () => $("btnPlay").textContent === "重播" &&
+      !!document.querySelector("#stepList .step.current"),
+    6000,
+    "automatic playback completion",
+  );
+  results.push("play button auto-advanced and finished");
+  $("btnResetPb").click();
+  await sleep(60);
 
   // A preserve change synchronously invalidates the old suggestion ...
   const cb = document.querySelector("#strokeList input[type=checkbox]");
